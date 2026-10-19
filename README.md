@@ -1,6 +1,27 @@
 <div align="center">
 
-# 15 Motion Design Styles
+# GCfango — Code-Driven Motion Graphics Skill
+
+**Deterministic Animation & Algorithmic Audio Synthesis Pipeline**<br>
+**代码驱动的动态图形（MG）动画与程序化音频合成全套工程体系**
+
+[**📖 核心 Skill 开发与深度理解指南 (SKILL.md)**](SKILL.md) · [**🌲 30秒扁平矢量长视频实战工程 (demos/30-tree)**](demos/30-tree/)
+
+<img src="docs/tree/contact-sheet-seasons.png" width="100%" alt="Thirty Seconds of a Tree - Four Seasons Contact Sheet">
+
+</div>
+
+> 🌟 **Featured Masterpiece: 《一棵树的三十秒》（Thirty Seconds of a Tree）**
+> - 完整 30 秒 (1920×1080 30fps，精确 900 帧)，纯 SVG 矢量节点与 DOM 渲染，0 累积形变误差。
+> - 具备春（萌发）、夏（繁盛 Drop）、秋（蜕变落叶）、冬（雪原静夜与新生闭环）四幕宏大色彩演进与平滑矩阵渐变。
+> - 音画单点真理（cues.json）帧级咬合，算法编曲配乐（-14 LUFS，True Peak -1.7 dBFS 广播级规范）。
+> - 详见 `demos/30-tree/` 与 `SKILL.md`。
+
+---
+
+<div align="center">
+
+## 15 Motion Design Styles (Base Library)
 
 **Fifteen styles, one 10-second film each, all made by Claude Opus 5.5 writing code.**<br>
 **15 种 MG 动态设计风格，每种一支 10 秒成片，全部由 Claude Opus 5.5 写代码做出来。**
