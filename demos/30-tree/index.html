@@ -1,0 +1,525 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>一棵树的三十秒 — Thirty Seconds of a Tree</title>
+<style>
+html,body{margin:0;padding:0;background:#2B2BFF;overflow:hidden;width:1920px;height:1080px}
+svg{display:block}
+</style></head>
+<body>
+<svg id="S" xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"></svg>
+<script>
+window.DEMO = { width:1920, height:1080, fps:30, duration:30, motionBlur:{ samples:1, shutter:0.5 } };
+</script>
+<script type="module">
+// 一棵树的三十秒 — flat vector, 30.000 s @ 30 fps, 900 frames.
+// Four acts = four seasons. One continuous camera, three circle wipes.
+// Every frame is a pure function of t: no state, no rAF, no Math.random.
+
+const W = 1920, H = 1080, GY = 786;
+const NS = 'http://www.w3.org/2000/svg';
+const S = document.getElementById('S');
+const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || S).appendChild(e); return e; };
+const G = (p, a) => el('g', a, p);
+const f3 = v => Math.round(v * 100) / 100;
+
+// ---------------------------------------------------------------- math
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, u) => a + (b - a) * u;
+const inv = (a, b, x) => clamp((x - a) / (b - a));
+function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const E = {
+  outQ: u => 1 - (1 - u) ** 2, ioQ: u => u < .5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2,
+  inC: u => u ** 3, outC: u => 1 - (1 - u) ** 3, ioC: u => u < .5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2,
+  outX: u => u >= 1 ? 1 : 1 - 2 ** (-10 * u),
+  outB: (u, s = 1.9) => 1 + (s + 1) * (u - 1) ** 3 + s * (u - 1) ** 2,
+};
+function spring(t, f = 2, z = .4) { if (t <= 0) return 0; const w = 2 * Math.PI * f, a = z * w, b = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-a * t) * (Math.cos(b * t) + (a / b) * Math.sin(b * t)); }
+function pop(t, t0, f = 2.4, z = .42, amt = .14, pin = .9) {
+  const tt = t - t0; const s = spring(tt, f, z);
+  const k = clamp(-0 + 0.0, -.3, .3); // velocity term folded into the spring below
+  const vel = tt > 0 ? Math.exp(-z * 2 * Math.PI * f * tt) * Math.sin(2 * Math.PI * f * Math.sqrt(1 - z * z) * tt) : 0;
+  const w = E.ioQ(inv(pin * .7, pin, tt));
+  return [lerp(s, 1, w), lerp(vel * amt, 0, w)];
+}
+function mixh(a, b, u) {
+  const pa = [1, 3, 5].map(i => parseInt(a.substr(i, 2), 16)), pb = [1, 3, 5].map(i => parseInt(b.substr(i, 2), 16));
+  return '#' + pa.map((v, i) => Math.round(lerp(v, pb[i], clamp(u))).toString(16).padStart(2, '0')).join('');
+}
+
+// ---------------------------------------------------------------- palettes
+const SEA = [
+  { bg: '#2B2BFF', hill1: '#4D4DFF', hill2: '#3B3BFF', gnd: '#FFC62B', gndD: '#F0A91A', gndS: '#D98F00',
+    trunk: '#151433', trunkD: '#2A2962', leaf: '#2EE6A8', leafD: '#1FC28C', accent: '#FF5A4E',
+    cream: '#FFF6E9', sun: '#FFC62B', ray: '#FF5A4E', cloud: '#FFF6E9' },
+  { bg: '#12B4FF', hill1: '#3FD8FF', hill2: '#21C4F5', gnd: '#2EE6A8', gndD: '#1FC28C', gndS: '#17906A',
+    trunk: '#151433', trunkD: '#2A2962', leaf: '#1FC28C', leafD: '#14855E', accent: '#FF5A4E',
+    cream: '#FFF6E9', sun: '#FFC62B', ray: '#FFF6E9', cloud: '#FFF6E9' },
+  { bg: '#FF8A3D', hill1: '#FFB07A', hill2: '#FF9C5C', gnd: '#FFC62B', gndD: '#F0A91A', gndS: '#C97F0F',
+    trunk: '#3A1A0A', trunkD: '#5A2A12', leaf: '#FF5A4E', leafD: '#E0433A', accent: '#2B2BFF',
+    cream: '#FFF6E9', sun: '#FFF6E9', ray: '#FFC62B', cloud: '#FFD9B8' },
+  { bg: '#151433', hill1: '#2A2962', hill2: '#1E1D4A', gnd: '#FFF6E9', gndD: '#E6D3B8', gndS: '#CBB79A',
+    trunk: '#0B0A22', trunkD: '#2A2962', leaf: '#2EE6A8', leafD: '#1FC28C', accent: '#FFC62B',
+    cream: '#FFF6E9', sun: '#FFF6E9', ray: '#A3A3FF', cloud: '#2A2962' },
+];
+const SEASON = ['春', '夏', '秋', '冬'];
+
+// ---------------------------------------------------------------- act timing & palette blend
+const W1 = 8.2, W2 = 15.8, W3 = 22.8, TDUR = 0.85;
+const seasonOf = t => t < W1 ? 0 : t < W2 ? 1 : t < W3 ? 2 : 3;
+
+function paletteAt(t) {
+  const trans = [
+    { tw: W1, from: 0, to: 1 },
+    { tw: W2, from: 1, to: 2 },
+    { tw: W3, from: 2, to: 3 },
+  ];
+  for (const tr of trans) {
+    const d = t - tr.tw;
+    if (Math.abs(d) <= TDUR / 2) {
+      const u = inv(tr.tw - TDUR / 2, tr.tw + TDUR / 2, t);
+      const e = u * u * (3 - 2 * u); // smoothstep
+      const A = SEA[tr.from], B = SEA[tr.to];
+      const res = {};
+      for (const k in A) {
+        res[k] = (typeof A[k] === 'string' && A[k].startsWith('#')) ? mixh(A[k], B[k], e) : (e < 0.5 ? A[k] : B[k]);
+      }
+      return res;
+    }
+  }
+  return SEA[seasonOf(t)];
+}
+
+// Graphic shockwave ring at season changeover: expands rapidly and fades, marking
+// the seasonal shift with flat-vector kinetic pop instead of a screen-covering blob.
+function seasonPulse(t) {
+  for (const tw of [W1, W2, W3]) {
+    const dt = t - tw;
+    if (dt >= 0 && dt <= 0.65) {
+      const u = dt / 0.65;
+      return { r: 50 + 1600 * E.outX(u), opa: (1 - u) * 0.85, w: 18 * (1 - u) };
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------- camera
+// One transform on one world group. Keyframes with smoothstep between them — this is the
+// whole "cinematography" of the film. The final push must keep BOTH the crown (~y=190)
+// and the sprout (y≈750) in frame: at scale 1.30 the visible height is 831 px, so a
+// centre of y=560 spans 144..976 — the whole tree, and the sprout reads at the base.
+const CAM = [
+  [0.0, 1.00, 960, 520], [8.2, 1.05, 960, 520],
+  [15.8, 1.00, 960, 500], [22.8, 1.06, 960, 556],
+  [26.6, 1.04, 958, 562], [30.0, 1.30, 942, 560],
+];
+function camAt(t) {
+  if (t <= CAM[0][0]) return CAM[0];
+  for (let i = 1; i < CAM.length; i++) {
+    if (t <= CAM[i][0]) {
+      const a = CAM[i - 1], b = CAM[i], u = inv(a[0], b[0], t), e = u * u * (3 - 2 * u);
+      return [t, lerp(a[1], b[1], e), lerp(a[2], b[2], e), lerp(a[3], b[3], e)];
+    }
+  }
+  return CAM[CAM.length - 1];
+}
+
+// ---------------------------------------------------------------- world
+const world = G(S);
+const bgR = el('rect', { x: -4000, y: -4000, width: 10000, height: 10000 }, world);
+const hill1 = el('path', { d: '' }, world);
+const hill2 = el('path', { d: '' }, world);
+function hillPath(cx, w, h) {
+  return `M${cx - w} ${GY + 40} L${cx - w} ${GY - h * .25} Q${cx - w * .55} ${GY - h} ${cx - w * .12} ${GY - h * .5}` +
+    ` Q${cx + w * .22} ${GY - h * .08} ${cx + w * .54} ${GY - h * .4} Q${cx + w * .84} ${GY - h * .72} ${cx + w} ${GY - h * .32} L${cx + w} ${GY + 40} Z`;
+}
+hill1.setAttribute('d', hillPath(660, 640, 250));
+hill2.setAttribute('d', hillPath(1380, 720, 186));
+
+const STARS = []; { const r = rng(31); for (let i = 0; i < 52; i++) STARS.push({ x: r() * W, y: r() * 470, r: 1.5 + r() * 2.4, ph: r() * 6.283, sp: 1.3 + r() * 2.2 }); }
+const starG = G(world);
+STARS.forEach(st => { st.e = el('circle', { cx: 0, cy: 0, r: f3(st.r) }, starG); });
+
+const sunG = G(world);
+const sunC = el('circle', { cx: 0, cy: 0, r: 96 }, sunG);
+// rays must live INSIDE the sun group, otherwise they sit at the world origin and
+// paint stray slashes in the top-left corner of the frame
+const raysG = G(sunG); const RAYS = [];
+for (let i = 0; i < 12; i++) RAYS.push(el('line', { 'stroke-linecap': 'round' }, raysG));
+
+function cloud() {
+  const gg = G(world);
+  el('rect', { x: -104, y: -26, width: 208, height: 52, rx: 26 }, gg);
+  el('circle', { cx: -30, cy: -26, r: 40 }, gg);
+  el('circle', { cx: 40, cy: -16, r: 28 }, gg);
+  return gg;
+}
+const CLOUDS = [
+  { x: 360, y: 196, s: 1.00, sp: 7, ph: 0 },
+  { x: 1640, y: 320, s: .80, sp: 5, ph: 2.1 },
+  { x: 940, y: 128, s: .58, sp: 9, ph: 4.3 },
+].map(c => ({ ...c, g: cloud() }));
+
+const BIRDS = [0, 1, 2].map(i => {
+  const gg = G(world), wl = G(gg), wr = G(gg);
+  const l = el('path', { d: 'M0 0 Q-12 -14 -28 -6', fill: 'none', 'stroke-width': 5, 'stroke-linecap': 'round' }, wl);
+  const r = el('path', { d: 'M0 0 Q12 -14 28 -6', fill: 'none', 'stroke-width': 5, 'stroke-linecap': 'round' }, wr);
+  return { g: gg, wl, wr, l, r, i, s: [1, .78, .9][i], y: [300, 356, 252][i], ph: [0, 1.7, 3.4][i] };
+});
+
+const gndR = el('rect', { x: -4000, y: GY, width: 10000, height: 4000 }, world);
+const gndEdge = el('rect', { x: -4000, y: GY, width: 10000, height: 14 }, world);
+const snowBand = el('rect', { x: -4000, y: GY, width: 10000, height: 0 }, world);
+const treeShadow = el('ellipse', { cx: 960, cy: GY + 12, rx: 200, ry: 20 }, world);
+
+// ---------------------------------------------------------------- tree
+const TREE = { x: 960, y: GY };
+const treeG = G(world);
+const BARK = [
+  'M938 792 L924 648 Q920 566 952 508 L974 508 Q1002 568 998 650 L984 792 Z',
+  'M954 548 Q884 506 818 462 L806 480 Q878 524 948 574 Z',
+  'M966 548 Q1036 502 1104 466 L1116 484 Q1046 520 972 574 Z',
+  'M958 520 Q914 438 878 364 L896 356 Q934 428 972 514 Z',
+  'M964 520 Q1010 436 1052 370 L1034 360 Q992 426 950 514 Z',
+  'M822 476 Q782 440 752 412 L764 398 Q798 428 834 466 Z',
+  'M1100 478 Q1140 442 1168 414 L1156 402 Q1122 432 1088 468 Z',
+  'M886 366 Q868 324 862 294 L876 292 Q884 322 900 358 Z',
+  'M1044 370 Q1062 330 1068 300 L1054 298 Q1046 328 1030 362 Z',
+];
+const BARK_E = BARK.map(d => el('path', { d }, treeG));
+
+// leaves: sampled once, revealed by time. Sized in absolute pixels (r attribute),
+// never by a group transform — scaling a circle by transform also scales its stroke.
+const CROWN = { x: 960, y: 396, rx: 300, ry: 206 };
+const LEAVES = [];
+{
+  const r = rng(1234);
+  for (let i = 0; i < 150; i++) {
+    const a = r() * Math.PI * 2, rad = Math.pow(r(), 0.58);
+    // push leaves to the outer shell so the branch structure stays readable through them
+    const rr = 0.30 + 0.70 * rad;
+    LEAVES.push({
+      x: CROWN.x + Math.cos(a) * CROWN.rx * rr,
+      y: CROWN.y + Math.sin(a) * CROWN.ry * rr,
+      r: 17 + r() * 15, ph: r() * 6.283, tk: r(),
+      tb: 1.35 + r() * 2.55, alt: r() < .40,
+    });
+  }
+}
+const leafG = G(world);
+LEAVES.forEach(L => { L.e = el('circle', { cx: 0, cy: 0, r: f3(L.r) }, leafG); });
+
+// fruit
+const FRUIT = [];
+{
+  const r = rng(77);
+  const pts = [[872, 468], [1014, 448], [934, 386], [1064, 420], [850, 398], [980, 484], [900, 780]];
+  for (let i = 0; i < 7; i++) {
+    FRUIT.push({ x: pts[i][0], y: pts[i][1], r: i === 6 ? 16 : 14, ta: 9.6 + i * 0.58, tf: 16.9 + i * 0.62, hero: i === 6, ph: r() * 6.283 });
+  }
+}
+const fruitG = G(world);
+FRUIT.forEach(F => { F.e = el('circle', { cx: 0, cy: 0, r: f3(F.r) }, fruitG); });
+
+const seedE = el('path', { d: 'M-15 0 A15 15 0 0 1 15 0 Z' }, world);
+
+const PETALS = [];
+{
+  const r = rng(555);
+  for (let i = 0; i < 34; i++) {
+    // petals are born inside the crown's lower half and die at the ground — never
+    // scattered across the whole frame
+    const aa = r() * Math.PI * 2, rad = Math.sqrt(r()) * 0.86;
+    PETALS.push({
+      x: CROWN.x + Math.cos(aa) * CROWN.rx * rad,
+      y: CROWN.y + CROWN.ry * (0.10 + 0.55 * r()),
+      ph: r() * 6.283, r: 4 + r() * 4.5, sw: 14 + r() * 26, sp: .55 + r() * .5,
+    });
+  }
+}
+const petalG = G(world);
+PETALS.forEach(P => { P.e = el('circle', { cx: 0, cy: 0, r: f3(P.r) }, petalG); });
+
+const SNOW = []; { const r = rng(909); for (let i = 0; i < 150; i++) SNOW.push({ x: r() * (W + 240) - 120, sp: .10 + r() * .15, ph: r(), r: 2 + r() * 4, sw: 14 + r() * 32 }); }
+const snowG = G(world);
+SNOW.forEach(P => { P.e = el('circle', { cx: 0, cy: 0, r: f3(P.r) }, snowG); });
+
+// the closing sprout — paths are drawn around (0,0) so a transform is the only thing
+// that positions them (a path with baked-in absolute coords fights its own transform)
+const sproutG = G(world);
+const sStem = el('path', { d: 'M900 786 L900 744', 'stroke-width': 7, 'stroke-linecap': 'round', fill: 'none' }, sproutG);
+const sLeafL = el('path', { d: 'M0 0 Q-24 -18 -42 -10 Q-24 10 0 4 Z' }, sproutG);
+const sLeafR = el('path', { d: 'M0 0 Q24 -20 42 -12 Q24 8 0 2 Z' }, sproutG);
+
+// ground details, sized in real pixels
+const TUFTS = [[286, 2.6], [512, 2.1], [1418, 2.4], [1636, 1.9], [742, 1.7], [1190, 2.2], [1044, 1.5], [1268, 1.8], [388, 1.4], [1548, 1.3]]
+  .map(([x, s], i) => ({ x, s, ph: i * 1.7, e: el('path', { d: 'M0 0 Q-8 -16 -4 -28 Q0 -18 0 -18 Q4 -30 10 -26 Q4 -14 5 0 Z' }, world) }));
+const ROCKS = [[612, 26], [1302, 30], [1730, 21]].map(([x, s]) => ({ x, s, e: el('ellipse', { cx: 0, cy: 0, rx: s, ry: s * .66 }, world) }));
+
+const rings = [0, 1].map(() => el('ellipse', { cx: 960, cy: GY + 6, rx: 0, ry: 0, fill: 'none', 'stroke-width': 0 }, world));
+const wipeC = el('circle', { cx: 960, cy: 500, r: 0, fill: 'none' }, world);
+
+// ---------------------------------------------------------------- setters (cheap: only touch the DOM when the value changes)
+function tf(e, x, y, sx = 1, sy = sx, rot = 0) {
+  e.setAttribute('transform', `translate(${f3(x)} ${f3(y)}) rotate(${f3(rot)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})`);
+}
+function show(e, v) { if (e.__h === v) return; e.__h = v; if (v) e.removeAttribute('display'); else e.setAttribute('display', 'none'); }
+function fill(e, c) { if (e.__c === c) return; e.__c = c; e.setAttribute('fill', c); }
+function stroke(e, c) { if (e.__s === c) return; e.__s = c; e.setAttribute('stroke', c); }
+function opa(e, o) { const v = Math.round(clamp(o) * 1000) / 1000; if (e.__o === v) return; e.__o = v; e.setAttribute('opacity', v); }
+
+// ---------------------------------------------------------------- render
+window.renderAt = async (t) => {
+  const si = seasonOf(t), P = paletteAt(t);
+  const [, cs, cfx, cfy] = camAt(t);
+  world.setAttribute('transform', `translate(960 540) scale(${cs.toFixed(3)}) translate(${f3(-cfx)} ${f3(-cfy)})`);
+
+  // ---- base plates
+  fill(bgR, P.bg); fill(hill1, P.hill1); fill(hill2, P.hill2);
+  fill(gndR, P.gnd); fill(gndEdge, P.gndD); fill(treeShadow, P.gndS); fill(seedE, P.accent);
+
+  // ---- stars (winter)
+  const starA = si === 3 ? clamp((t - 23.3) / 2.2) : 0;
+  for (const st of STARS) {
+    show(st.e, starA > 0.002);
+    if (starA <= 0.002) continue;
+    tf(st.e, st.x, st.y);
+    fill(st.e, P.cream);
+    opa(st.e, starA * (0.30 + 0.70 * (0.5 + 0.5 * Math.sin(t * st.sp + st.ph))));
+  }
+
+  // ---- day arc: the sun crosses the sky once per film; the year IS the day
+  const u = clamp(t / 22.6);
+  const sunX = lerp(690, 1250, u), sunY = 540 - 366 * Math.sin(Math.PI * clamp(u * 1.03));
+  const isWinter = si === 3;
+  if (!isWinter) {
+    show(sunG, true); show(raysG, true);
+    tf(sunG, sunX, sunY); fill(sunC, P.sun);
+    const rayA = si === 1 ? 0.85 : si === 0 ? 0.5 : 0.3;
+    for (let i = 0; i < 12; i++) {
+      const a = i / 12 * Math.PI * 2 + t * 0.09, rr = 134 + 24 * Math.sin(t * 1.1 + i);
+      const e = RAYS[i];
+      e.setAttribute('x1', f3(Math.cos(a) * 126)); e.setAttribute('y1', f3(Math.sin(a) * 126));
+      e.setAttribute('x2', f3(Math.cos(a) * rr)); e.setAttribute('y2', f3(Math.sin(a) * rr));
+      e.setAttribute('stroke-width', (9 * (0.55 + 0.45 * Math.sin(t * 2 + i))).toFixed(1));
+      stroke(e, P.ray); opa(e, rayA);
+    }
+  } else {
+    // the sun has set; the moon takes its place
+    const moonA = clamp((t - 23.5) / 1.7);
+    if (moonA > 0.002) {
+      show(sunG, true); show(raysG, false);
+      tf(sunG, 1338, 232); fill(sunC, P.sun); opa(sunG, moonA);
+    } else { show(sunG, false); show(raysG, false); }
+  }
+
+  // ---- clouds
+  for (const c of CLOUDS) {
+    const cx = ((c.x + t * c.sp) % (W + 760)) - 380;
+    tf(c.g, cx, c.y + Math.sin(t * 0.45 + c.ph) * 5, c.s, c.s);
+    c.g.querySelectorAll('rect,circle').forEach(e => fill(e, P.cloud));
+    opa(c.g, si === 3 ? 0.5 : 0.94);
+  }
+
+  // ---- birds, two flocks
+  BIRDS.forEach(b => {
+    let seen = false;
+    for (const [a, z] of [[4.6, 7.2], [11.6, 14.0]]) {
+      if (t < a - 0.2 || t > z + 0.8) continue;
+      const uu = inv(a, z, t);
+      const bx = lerp(-140, W + 180, uu) - b.i * 76, by = b.y + Math.sin(t * 1.5 + b.ph) * 15;
+      const f = t > z ? 1 - inv(z, z + 0.8, t) : 1;
+      if (f <= 0.02) continue;
+      show(b.g, true); tf(b.g, bx, by, b.s * f, b.s * f);
+      const flap = Math.sin(t * 8.5 + b.ph) * 0.36;
+      b.wl.setAttribute('transform', `rotate(${f3(-13 + flap * 32)})`);
+      b.wr.setAttribute('transform', `rotate(${f3(13 - flap * 32)})`);
+      const ink = si === 3 ? P.cream : P.trunk;
+      stroke(b.l, ink); stroke(b.r, ink);
+      seen = true; break;
+    }
+    if (!seen) show(b.g, false);
+  });
+
+  // ---- tree growth with overshoot
+  const gt = inv(0.50, 1.50, t);
+  if (gt > 0) {
+    show(treeG, true);
+    const gs = clamp(E.outB(clamp(gt / 0.88), 1.5));
+    const sy = Math.max(0.02, gs), sx = 1 + (1 - gs) * 0.30;
+    // origin at the trunk base: scale about (TREE.x, TREE.y)
+    treeG.setAttribute('transform', `translate(${TREE.x} ${TREE.y}) scale(${sx.toFixed(3)} ${sy.toFixed(3)}) translate(${-TREE.x} ${-TREE.y})`);
+    BARK_E.forEach(e => fill(e, si === 3 ? P.trunk : P.trunk));
+  } else show(treeG, false);
+
+  // ---- leaves
+  for (const L of LEAVES) {
+    if (t < L.tb) { show(L.e, false); continue; }
+    const [bs, bk] = pop(t, L.tb, 2.7, .40, .18, .55);
+    // autumn: turn, then let go
+    const turn = clamp((t - (16.0 + L.tk * 1.7)) / 1.4);
+    const dropT = 16.9 + L.tk * 4.0;
+    let x = L.x + Math.sin(t * 1.1 + L.ph) * 5, y = L.y + Math.cos(t * 0.9 + L.ph * 1.3) * 4;
+    let sc = bs, rot = 0;
+    let col = L.alt ? P.leafD : P.leaf;
+    if (si === 2) col = mixh(col, '#FF5A4E', clamp(turn * 1.15));
+    if (si === 3) { show(L.e, false); continue; }
+    if (t > dropT) {
+      const tt = t - dropT;
+      const fy = L.y + 0.5 * 1150 * tt * tt;
+      const landY = GY + 6 + L.tk * 34;
+      if (fy < landY) {
+        y = fy; x = L.x + Math.sin(tt * 2.0 + L.ph) * 30 + tt * 22; rot = tt * 200 + L.ph * 57;
+      } else {
+        // settle: land where the drift left it, and sink into the field so the fallen
+        // leaves read as litter rather than a string of beads on the horizon line
+        const maxX = CROWN.rx * 1.15;
+        y = landY - 4 + L.tk * 16;
+        x = clamp(L.x + Math.sin((landY - L.y) / 70 + L.ph) * 26 + (L.tk - .5) * 90,
+          CROWN.x - maxX, CROWN.x + maxX);
+        rot = 180 + L.tk * 40; sc = bs * 0.62;
+      }
+    }
+    if (sc < 0.02) { show(L.e, false); continue; }
+    show(L.e, true);
+    // squash & stretch on bloom: scale x/y only, r stays absolute
+    tf(L.e, x, y, sc * (1 + bk * .45), sc * (1 - bk * .45), rot);
+    // fallen leaves are darker so the field doesn't read as one flat red band
+    fill(L.e, t > dropT ? P.leafD : col);
+  }
+
+  // ---- fruit: hidden in winter so the bare tree stays bare
+  for (const F of FRUIT) {
+    if (si === 3) { show(F.e, false); continue; }
+    if (t < F.ta) { show(F.e, false); continue; }
+    const [fs, fk] = pop(t, F.ta, 2.9, .38, .2, .5);
+    let x = F.x, y = F.y, sc = fs, sq = 1 + fk * .4;
+    if (t > F.tf) {
+      const tt = t - F.tf, g = 1700, landY = GY - 6;
+      const fy = F.y + 0.5 * g * tt * tt;
+      if (fy < landY) { y = fy; sq = 1.10; x = F.x + Math.sin(tt * 2.2 + F.ph) * 18 * Math.exp(-1.0 * tt); }
+      else {
+        const tHit = Math.sqrt(2 * (landY - F.y) / g), tb = tt - tHit;
+        y = landY - 92 * Math.exp(-7.5 * tb) * Math.abs(Math.sin(10.5 * tb));
+        sq = 1 + 0.15 * Math.exp(-6 * tb) * Math.cos(13 * tb);
+      }
+    }
+    if (sc < 0.02) { show(F.e, false); continue; }
+    show(F.e, true);
+    tf(F.e, x, y, sc * (2 - sq), sc * sq);
+    // fruit is always coral — P.accent flips to blue in autumn (it is the *contrast*
+    // colour there), which painted the berries the wrong hue at the wrong size
+    fill(F.e, t > F.tf ? '#E0433A' : '#FF5A4E');
+  }
+  // the seed shell: only during the opening, then it stays buried. P.accent turns blue
+  // in autumn, so pin it to coral rather than the season palette.
+  {
+    const ss = t < 1.9 ? pop(t, 0.32, 3.1, .36, .22, .5)[0] : 0;
+    show(seedE, ss > 0.02);
+    if (ss > 0.02) {
+      const sk = 0;
+      tf(seedE, 960, GY - 2, ss * (1 + sk * .4), ss * (1 - sk * .4));
+      fill(seedE, '#FF5A4E');
+    }
+  }
+
+  // ---- petals (spring): born in the crown, they fall to the field and fade
+  for (const Pt of PETALS) {
+    const a = inv(3.7, 8.7, t);
+    if (a <= 0 || a >= 1) { show(Pt.e, false); continue; }
+    // each petal runs its own fall cycle, offset so the drift is continuous
+    const aa = (a * 2.3 * Pt.sp + Pt.ph / 6.283) % 1;
+    const y = Pt.y + aa * (GY + 10 - Pt.y);
+    const x = Pt.x + Math.sin(aa * 6.2 + Pt.ph) * Pt.sw;
+    show(Pt.e, true);
+    tf(Pt.e, x, y, 1, 1, aa * 320 + Pt.ph * 57);
+    fill(Pt.e, P.cream);
+    // fade in near the crown, out as it reaches the ground
+    opa(Pt.e, Math.sin(Math.PI * Math.min(1, aa * 1.15)) * 0.75);
+  }
+
+  // ---- snow
+  const snowA = si === 3 ? clamp((t - 23.0) / 1.5) : 0;
+  for (const F of SNOW) {
+    if (snowA <= 0.002) { show(F.e, false); continue; }
+    const yy = (F.ph + t * F.sp * 1.6) % 1;
+    const y = yy * (GY + 140) - 70;
+    const x = F.x + Math.sin(t * 0.85 + F.ph * 6.28) * F.sw;
+    show(F.e, true); tf(F.e, x, y);
+    fill(F.e, P.cream); opa(F.e, snowA * (0.4 + 0.6 * (1 - yy)));
+  }
+  // snow piling up on the field — a drift band that swallows the grass line
+  const pile = si === 3 ? clamp((t - 23.4) / 4.2) : 0;
+  show(snowBand, pile > 0.004);
+  if (pile > 0.004) {
+    snowBand.setAttribute('height', (34 * pile).toFixed(1));
+    snowBand.setAttribute('y', (GY - 34 * pile).toFixed(1));
+    fill(snowBand, P.cream);
+  }
+
+  // ---- the closing sprout (bookend with the opening seed)
+  // NB: the stem scales from the soil, but the leaves must NOT inherit that y-squash —
+  // they are drawn at their own anchor so they bloom at full size.
+  const sa = inv(27.55, 28.7, t);
+  if (sa <= 0) { show(sproutG, false); show(sLeafL, false); show(sLeafR, false); }
+  else {
+    show(sproutG, true);
+    const h = clamp(E.outB(sa, 1.6));
+    sStem.setAttribute('transform', `translate(900 792) scale(1 ${Math.max(0.02, h).toFixed(3)}) translate(-900 -792)`);
+    stroke(sStem, P.leafD);
+
+    // leaves: one after the other, each popping at its own anchor
+    [sLeafL, sLeafR].forEach((e, i) => {
+      const t0 = 28.10 + i * 0.16;
+      const [ls, lk] = pop(t, t0, 3.0, .40, .22, .5);
+      show(e, ls > 0.02);
+      if (ls <= 0.02) return;
+      const ax = i ? 900 : 900, ay = i ? 750 : 754;
+      tf(e, ax, ay, Math.max(0.02, ls) * (1 + lk * .3), Math.max(0.02, ls) * (1 - lk * .3), i ? 6 : -6);
+      fill(e, P.leaf);
+    });
+  }
+
+  // ---- ground details
+  for (const tf_ of TUFTS) {
+    const hidden = si === 3 && pile > 0.55;
+    show(tf_.e, !hidden);
+    if (hidden) continue;
+    tf(tf_.e, tf_.x, GY + 8, tf_.s, tf_.s, Math.sin(t * 1.3 + tf_.ph) * 4);
+    fill(tf_.e, si === 3 ? P.gndS : P.gndD);
+  }
+  for (const rk of ROCKS) {
+    show(rk.e, true); tf(rk.e, rk.x, GY + 6);
+    fill(rk.e, si === 3 ? P.gndD : P.gndS);
+  }
+
+  // ---- opening impact rings
+  const u0 = inv(0.32, 0.95, t);
+  rings.forEach((e, i) => {
+    const uu = u0 <= 0 ? 0 : clamp((u0 - i * 0.15) / (1 - i * 0.15));
+    if (uu <= 0 || uu >= 1) { show(e, false); return; }
+    show(e, true);
+    const rr = 44 + 300 * E.outX(uu);
+    e.setAttribute('rx', f3(rr)); e.setAttribute('ry', f3(rr * 0.3));
+    stroke(e, i === 0 ? P.accent : P.cream);
+    e.setAttribute('stroke-width', f3(15 * (1 - uu)));
+    opa(e, 1 - uu);
+  });
+
+  // ---- seasonal energy pulse: a crisp graphic shockwave expanding from the tree
+  // that marks the seasonal shift with flat-vector kinetic pop instead of a screen-covering blob.
+  const pulse = seasonPulse(t);
+  if (pulse) {
+    show(wipeC, true);
+    wipeC.setAttribute('r', f3(pulse.r));
+    fill(wipeC, 'none');
+    stroke(wipeC, P.cream);
+    wipeC.setAttribute('stroke-width', f3(pulse.w));
+    opa(wipeC, pulse.opa);
+  } else {
+    show(wipeC, false);
+  }
+};
+
+await window.renderAt(0);
+window.__ready = true;
+</script>
+</body></html>

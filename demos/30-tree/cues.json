@@ -1,0 +1,29 @@
+{
+  "_comment": "cues.json — single source of truth shared by picture and sound. Frame numbers at 30 fps, 30.000 s = 900 frames. Four acts = four seasons.",
+  "fps": 30,
+  "duration": 30.0,
+  "bpm": 120,
+  "key": "F",
+  "cues": [
+    { "frame": 10,  "name": "seed_drop",     "what": "种子落进土里 — 全片第一个动作" },
+    { "frame": 24,  "name": "seed_land",     "what": "种子触地，冲击环扩散" },
+    { "frame": 32,  "name": "sprout",        "what": "树干破土，纵向弹起" },
+    { "frame": 62,  "name": "leaf_a",        "what": "第一片叶子绽开" },
+    { "frame": 96,  "name": "leaf_b",        "what": "树冠开始成形" },
+    { "frame": 130, "name": "summer_in",     "what": "入夏，青色天空接管" },
+    { "frame": 158, "name": "first_fruit",   "what": "第一颗果实出现" },
+    { "frame": 190, "name": "full_crown",    "what": "树冠饱满，全片视觉峰值之一" },
+    { "frame": 243, "name": "autumn_in",     "what": "入秋，叶色开始转红" },
+    { "frame": 262, "name": "first_fall",    "what": "第一片叶子离枝" },
+    { "frame": 300, "name": "leaf_fall_mid", "what": "落叶最密的一段" },
+    { "frame": 356, "name": "bare",          "what": "枝干裸露，只剩空枝" },
+    { "frame": 380, "name": "winter_in",     "what": "入冬，夜与雪" },
+    { "frame": 412, "name": "snow_peak",     "what": "雪落满画面" },
+    { "frame": 470, "name": "moon_hold",     "what": "月亮下的静止" },
+    { "frame": 760, "name": "push_in",       "what": "镜头开始推近" },
+    { "frame": 828, "name": "sprout_new",    "what": "新芽破土 — 与开场呼应" },
+    { "frame": 846, "name": "leaf_new",      "what": "新芽张开两片叶" },
+    { "frame": 880, "name": "hold_end",      "what": "定格" },
+    { "frame": 899, "name": "end",           "what": "最后一帧" }
+  ]
+}
